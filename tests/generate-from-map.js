@@ -132,7 +132,7 @@ function inferGenerator(field, fieldNames) {
 
 // ─── Leer field-map.json ──────────────────────────────────────────────────────
 
-const mapPath = path.join(__dirname, '..', 'tests', 'field-map.json')
+const mapPath = path.join(__dirname, 'field-map.json')
 const map     = JSON.parse(fs.readFileSync(mapPath, 'utf8'))
 
 // Recolectar campos únicos por name
@@ -210,5 +210,5 @@ map.steps.forEach(step =>
 )
 fs.writeFileSync(mapPath, JSON.stringify(map, null, 2), 'utf8')
 console.log(`✓ field-map.json actualizado con csvColumn`)
-console.log(`\n  → Actualiza CSV_PATH=test/clientes-map.csv en .env`)
+console.log(`\n  → Actualiza CSV_PATH=tests/clientes-map.csv en .env`)
 console.log(`  → Luego corre: npm run test:csv\n`)

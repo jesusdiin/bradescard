@@ -41,7 +41,7 @@ function parseCSV(filePath) {
   })
 }
 
-const csvPath = path.join(process.cwd(), process.env.CSV_PATH ?? 'test/clientes-map.csv')
+const csvPath = path.join(process.cwd(), process.env.CSV_PATH ?? 'tests/clientes-map.csv')
 const clientes = parseCSV(csvPath)
 
 // ── Tests dinámicos — 1 test por fila del CSV ─────────────────────────────────
