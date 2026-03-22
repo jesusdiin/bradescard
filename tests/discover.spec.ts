@@ -290,7 +290,7 @@ async function extractFields(page: Page): Promise<Field[]> {
 
     // ── Custom combobox/listbox (Angular Material, Vuetify, Ant Design, etc.) ──
     document.querySelectorAll<HTMLElement>(
-      '[role="combobox"], [role="listbox"], [role="select"]'
+      '[role="combobox"], [role="listbox"], [role="select"], [aria-haspopup="listbox"], [aria-haspopup="true"]'
     ).forEach(el => {
       // Ignorar si no es visible
       if (!el.offsetParent) return
