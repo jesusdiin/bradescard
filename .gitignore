@@ -27,5 +27,5 @@ dist-ssr
 0
 *.txt
 *.csv
-*.json
+field-map.json
 test-results
