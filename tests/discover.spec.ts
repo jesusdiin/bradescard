@@ -1,5 +1,5 @@
 /**
- * discover.spec.js — Descubrimiento automático de campos de formulario.
+ * discover.spec.ts — Descubrimiento automático de campos de formulario.
  *
  * Soporta:
  *  - Formularios SPA (detección por cambio de DOM)
@@ -14,11 +14,13 @@
  */
 
 import { test } from '@playwright/test'
+import type { Page, ElementHandle } from '@playwright/test'
+import type { Field, FieldMap, LoginInfo } from './helpers/types.js'
 import fs from 'fs'
 import path from 'path'
 
 // ── Valores mínimos para pasar validaciones durante el descubrimiento ─────────
-const FILL_DEFAULTS = {
+const FILL_DEFAULTS: Record<string, string> = {
   text:             'Test',
   email:            'test@test.com',
   tel:              '5512345678',
@@ -43,10 +45,10 @@ test('Descubrir campos del formulario', async ({ page }) => {
   const username = process.env.TEST_USER ?? 'gerente'
   const password = process.env.TEST_PASS ?? 'aurrera2024'
 
-  const fieldMap = {
+  const fieldMap: FieldMap = {
     baseURL,
     generatedAt: new Date().toISOString(),
-    login: {},
+    login: null,
     steps: [],
   }
 
@@ -59,22 +61,23 @@ test('Descubrir campos del formulario', async ({ page }) => {
   const loginPassEl = await page.$('input[type="password"]')
   const hasLogin    = loginPassEl !== null && await loginPassEl.isVisible()
 
-  if (hasLogin) {
+  if (hasLogin && loginPassEl) {
     const loginUser = await page.$('input[type="text"], input[type="email"], #username')
     const loginBtn  = await page.$('button[type="submit"]')
 
-    fieldMap.login = {
+    const loginInfo: LoginInfo = {
       usernameSelector: loginUser ? await getBestSelector(page, loginUser) : '#username',
       passwordSelector: await getBestSelector(page, loginPassEl),
       submitSelector:   loginBtn  ? await getBestSelector(page, loginBtn)  : 'button[type="submit"]',
     }
+    fieldMap.login = loginInfo
 
     console.log('✓ Login detectado:', JSON.stringify(fieldMap.login))
 
     // ── FASE 2: Login ──────────────────────────────────────────────────────
-    await page.fill(fieldMap.login.usernameSelector, username)
-    await page.fill(fieldMap.login.passwordSelector, password)
-    await page.click(fieldMap.login.submitSelector)
+    await page.fill(loginInfo.usernameSelector, username)
+    await page.fill(loginInfo.passwordSelector, password)
+    await page.click(loginInfo.submitSelector)
     await page.waitForTimeout(2000)
     console.log('✓ Login enviado — continuando discovery')
   } else {
@@ -170,19 +173,18 @@ test('Descubrir campos del formulario', async ({ page }) => {
 })
 
 // ── extractFields ─────────────────────────────────────────────────────────────
-async function extractFields(page) {
-  return await page.evaluate(() => {
-    const fields = []
-    const seen   = new Set()
+async function extractFields(page: Page): Promise<Field[]> {
+  return await page.evaluate((): Field[] => {
+    const fields: Field[] = []
+    const seen   = new Set<string>()
 
     const SKIP_TYPES = new Set(['hidden', 'submit', 'button', 'image', 'reset'])
 
-    function clean(str) {
+    function clean(str: string | null): string {
       return (str || '').replace(/\s+/g, ' ').replace(/\*/g, '').trim()
     }
 
-    // Estrategia de label (prioridad descendente)
-    function getLabel(el) {
+    function getLabel(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
       if (el.id) {
         try {
           const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`)
@@ -212,11 +214,10 @@ async function extractFields(page) {
         if (/^h[1-6]$/i.test(prev.tagName)) return clean(prev.textContent)
         prev = prev.previousElementSibling
       }
-      return el.placeholder || el.name || el.id || ''
+      return (el as HTMLInputElement).placeholder || el.name || el.id || ''
     }
 
-    // Estrategia de selector (prioridad descendente)
-    function getSelector(el) {
+    function getSelector(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): { selector: string; strategy: string } {
       const testid = el.getAttribute('data-testid')
       if (testid) return { selector: `[data-testid="${testid}"]`, strategy: 'testid' }
       const cy = el.getAttribute('data-cy') || el.getAttribute('data-qa')
@@ -234,23 +235,22 @@ async function extractFields(page) {
       return { selector: cls ? `${tag}.${cls}` : tag, strategy: 'css' }
     }
 
-    document.querySelectorAll('input, textarea, select').forEach(el => {
-      // Ignorar invisibles (excepto select que puede estar oculto pero activo)
+    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select').forEach(el => {
       if (!el.offsetParent && el.tagName !== 'SELECT') return
 
-      const inputType = (el.type || el.tagName).toLowerCase()
+      const inputEl   = el as HTMLInputElement
+      const inputType = (inputEl.type || el.tagName).toLowerCase()
       if (SKIP_TYPES.has(inputType)) return
 
       const { selector, strategy } = getSelector(el)
 
-      // Agrupar radio/checkbox por name
       if ((inputType === 'radio' || inputType === 'checkbox') && el.name) {
         const groupKey = `${inputType}:${el.name}`
         if (seen.has(groupKey)) return
         seen.add(groupKey)
 
         const groupSel = `input[name="${el.name}"]`
-        const opts = Array.from(document.querySelectorAll(`input[name="${el.name}"]`))
+        const opts = Array.from(document.querySelectorAll<HTMLInputElement>(`input[name="${el.name}"]`))
           .map(r => r.value).filter(Boolean)
 
         let groupLabel = getLabel(el)
@@ -262,7 +262,7 @@ async function extractFields(page) {
 
         fields.push({
           label: groupLabel, selector: groupSel, type: inputType,
-          name: el.name, placeholder: '', required: el.required || el.hasAttribute('required'),
+          name: el.name, placeholder: '', required: inputEl.required || el.hasAttribute('required'),
           options: opts, selectorStrategy: 'name', csvColumn: '',
         })
         return
@@ -275,14 +275,15 @@ async function extractFields(page) {
                  : el.tagName === 'SELECT'   ? 'select'
                  : inputType
 
-      const options = el.tagName === 'SELECT'
-        ? Array.from(el.options).slice(1).map(o => o.value).filter(Boolean)
+      const selectEl  = el as HTMLSelectElement
+      const options   = el.tagName === 'SELECT'
+        ? Array.from(selectEl.options).slice(1).map(o => o.value).filter(Boolean)
         : []
 
       fields.push({
         label: getLabel(el), selector, type,
-        name: el.name || '', placeholder: el.placeholder || '',
-        required: el.required || el.hasAttribute('required'),
+        name: el.name || '', placeholder: (el as HTMLInputElement).placeholder || '',
+        required: inputEl.required || el.hasAttribute('required'),
         options, selectorStrategy: strategy, csvColumn: '',
       })
     })
@@ -292,26 +293,26 @@ async function extractFields(page) {
 }
 
 // ── getBestSelector (fuera de evaluate, para el login) ────────────────────────
-async function getBestSelector(_page, handle) {
-  return await handle.evaluate(el => {
+async function getBestSelector(_page: Page, handle: ElementHandle<Element>): Promise<string> {
+  return await handle.evaluate((el: Element) => {
     if (el.getAttribute('data-testid')) return `[data-testid="${el.getAttribute('data-testid')}"]`
-    try { if (el.id) return `#${CSS.escape(el.id)}` } catch {}
-    if (el.name) return `[name="${el.name}"]`
+    try { if ((el as HTMLElement).id) return `#${CSS.escape((el as HTMLElement).id)}` } catch {}
+    if ((el as HTMLInputElement).name) return `[name="${(el as HTMLInputElement).name}"]`
     return el.tagName.toLowerCase()
   })
 }
 
 // ── getHeadingText ────────────────────────────────────────────────────────────
-async function getHeadingText(page) {
+async function getHeadingText(page: Page): Promise<string> {
   try {
-    return await page.textContent('h1, h2, .step-title, [class*="step-title"]', { timeout: 1_000 })
+    return await page.textContent('h1, h2, .step-title, [class*="step-title"]', { timeout: 1_000 }) ?? ''
   } catch {
     return ''
   }
 }
 
 // ── findNextButton ────────────────────────────────────────────────────────────
-async function findNextButton(page) {
+async function findNextButton(page: Page): Promise<string | null> {
   const candidates = [
     'button:has-text("Siguiente")',
     'button:has-text("Next")',
@@ -335,7 +336,7 @@ async function findNextButton(page) {
 }
 
 // ── fillMinimumValues ─────────────────────────────────────────────────────────
-async function fillMinimumValues(page, fields) {
+async function fillMinimumValues(page: Page, fields: Field[]): Promise<void> {
   for (const field of fields) {
     if (field.type === 'file') continue
     try {

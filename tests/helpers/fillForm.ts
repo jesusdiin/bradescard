@@ -7,10 +7,12 @@
  *
  * Ambas funciones se detienen en el último paso (resumen) sin enviar.
  */
+import type { Page } from '@playwright/test'
+import type { Field, FieldMap, Cliente } from './types.js'
 
 // ── MODO 1: Selectores hardcodeados (local) ───────────────────────────────────
 
-export async function fillForm(page, cliente) {
+export async function fillForm(page: Page, cliente: Cliente): Promise<void> {
   // ── PASO 1: Datos Personales
   await page.waitForSelector('#nombre')
   await page.fill('#nombre', cliente.nombre)
@@ -65,7 +67,7 @@ export async function fillForm(page, cliente) {
  * Navega a la URL del field-map y hace login si fue descubierto.
  * Si fieldMap.login === null, navega directo al formulario sin login.
  */
-export async function loginFromMap(page, fieldMap) {
+export async function loginFromMap(page: Page, fieldMap: FieldMap): Promise<void> {
   await page.goto(fieldMap.baseURL)
   await page.waitForLoadState('load')
   await page.waitForTimeout(1500)
@@ -83,12 +85,9 @@ export async function loginFromMap(page, fieldMap) {
 // ── MODO 3: Config-driven desde field-map.json (staging desconocido) ──────────
 
 /**
- * Rellena el formulario usando el mapa de campos generado por discover.js.
- * @param {import('@playwright/test').Page} page
- * @param {Object} cliente - fila del CSV como objeto plano
- * @param {Object} fieldMap - contenido de tests/field-map.json
+ * Rellena el formulario usando el mapa de campos generado por discover.ts.
  */
-export async function fillFormFromMap(page, cliente, fieldMap) {
+export async function fillFormFromMap(page: Page, cliente: Cliente, fieldMap: FieldMap): Promise<void> {
   for (const step of fieldMap.steps) {
     // Esperar a que al menos el primer campo del paso sea visible
     if (step.fields.length > 0) {
@@ -105,7 +104,7 @@ export async function fillFormFromMap(page, cliente, fieldMap) {
       try {
         await fillField(page, field, value)
       } catch (err) {
-        console.warn(`  ⚠ No se pudo rellenar "${field.label}" (${field.selector}): ${err.message}`)
+        console.warn(`  ⚠ No se pudo rellenar "${field.label}" (${field.selector}): ${(err as Error).message}`)
       }
     }
 
@@ -120,7 +119,7 @@ export async function fillFormFromMap(page, cliente, fieldMap) {
 /**
  * Rellena un campo según su tipo.
  */
-async function fillField(page, field, value) {
+async function fillField(page: Page, field: Field, value: string): Promise<void> {
   switch (field.type) {
     case 'text':
     case 'email':
@@ -153,7 +152,7 @@ async function fillField(page, field, value) {
         }
       } else {
         // Checkbox simple (booleano)
-        if (value === 'true' || value === '1') {
+        if (value === 'true' || value === '1' || value === 'on') {
           await page.check(field.selector)
         }
       }
@@ -162,7 +161,7 @@ async function fillField(page, field, value) {
 }
 
 // ── Utilidad ──────────────────────────────────────────────────────────────────
-async function clickSiguiente(page) {
+async function clickSiguiente(page: Page): Promise<void> {
   await page.click('button.btn-primary:has-text("Siguiente")')
   await page.waitForTimeout(300)
 }

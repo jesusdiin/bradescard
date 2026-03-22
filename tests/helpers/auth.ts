@@ -6,7 +6,9 @@
  *   TEST_USER  — nombre de usuario (default: gerente)
  *   TEST_PASS  — contraseña      (default: aurrera2024)
  */
-export async function login(page) {
+import type { Page } from '@playwright/test'
+
+export async function login(page: Page): Promise<void> {
   const username = process.env.TEST_USER ?? 'gerente'
   const password = process.env.TEST_PASS ?? 'aurrera2024'
 
