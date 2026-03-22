@@ -288,6 +288,33 @@ async function extractFields(page: Page): Promise<Field[]> {
       })
     })
 
+    // ── Custom combobox/listbox (Angular Material, Vuetify, Ant Design, etc.) ──
+    document.querySelectorAll<HTMLElement>(
+      '[role="combobox"], [role="listbox"], [role="select"]'
+    ).forEach(el => {
+      // Ignorar si no es visible
+      if (!el.offsetParent) return
+
+      // Ignorar si contiene o está dentro de un <select> nativo ya procesado
+      if (el.querySelector('select') ?? el.closest('select')) return
+
+      const { selector, strategy } = getSelector(el as unknown as HTMLInputElement)
+      if (seen.has(selector)) return
+      seen.add(selector)
+
+      fields.push({
+        label:            getLabel(el as unknown as HTMLInputElement),
+        selector,
+        type:             'combobox',
+        name:             el.getAttribute('name') || el.id || '',
+        placeholder:      el.getAttribute('placeholder') || el.getAttribute('aria-placeholder') || '',
+        required:         el.getAttribute('aria-required') === 'true' || el.hasAttribute('required'),
+        options:          [],
+        selectorStrategy: strategy,
+        csvColumn:        '',
+      })
+    })
+
     return fields
   })
 }
@@ -348,6 +375,15 @@ async function fillMinimumValues(page: Page, fields: Field[]): Promise<void> {
         await page.check(field.selector, { timeout: 2_000 })
       } else if (field.type === 'select' && field.options.length > 0) {
         await page.selectOption(field.selector, field.options[0], { timeout: 2_000 })
+      } else if (field.type === 'combobox') {
+        await page.click(field.selector, { timeout: 2_000 })
+        await page.waitForTimeout(400)
+        const firstOption = page.locator('[role="option"]').first()
+        if (await firstOption.isVisible({ timeout: 1_500 })) {
+          await firstOption.click()
+        } else {
+          await page.keyboard.press('Escape')
+        }
       } else {
         const val = FILL_DEFAULTS[field.type] ?? 'Test'
         await page.fill(field.selector, val, { timeout: 2_000 })

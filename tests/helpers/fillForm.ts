@@ -139,6 +139,21 @@ async function fillField(page: Page, field: Field, value: string): Promise<void>
       await page.selectOption(field.selector, value)
       break
 
+    case 'combobox': {
+      await page.click(field.selector)
+      await page.waitForTimeout(400)
+      // Seleccionar por texto si hay valor; si no, primera opción disponible
+      const target = value
+        ? page.locator(`[role="option"]:has-text("${value}")`).first()
+        : page.locator('[role="option"]').first()
+      if (await target.isVisible({ timeout: 1_500 })) {
+        await target.click()
+      } else {
+        await page.keyboard.press('Escape')
+      }
+      break
+    }
+
     case 'radio':
       await page.check(`${field.selector}[value="${value}"]`)
       break
