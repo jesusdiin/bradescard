@@ -3,7 +3,7 @@
  * Uso: npm run cli
  */
 
-import { spawn } from 'child_process'
+import { spawn, execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import prompts from 'prompts'
@@ -22,7 +22,109 @@ function section(title: string) {
   console.log()
 }
 
-async function checkBrowserInstall(): Promise<void> {
+interface BrowserOption {
+  title: string
+  value: string
+}
+
+function detectSystemBrowsers(): BrowserOption[] {
+  const found: BrowserOption[] = []
+  const platform = process.platform
+
+  const candidates: Array<{ title: string; paths: string[] }> = []
+
+  if (platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA ?? ''
+    const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files'
+    const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
+
+    candidates.push(
+      {
+        title: 'Google Chrome',
+        paths: [
+          path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+          path.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+          path.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        ],
+      },
+      {
+        title: 'Microsoft Edge',
+        paths: [
+          path.join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+          path.join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+        ],
+      },
+      {
+        title: 'Brave',
+        paths: [
+          path.join(programFiles, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
+          path.join(programFilesX86, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
+          path.join(localAppData, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
+        ],
+      },
+      {
+        title: 'Chromium',
+        paths: [
+          path.join(programFiles, 'Chromium', 'Application', 'chrome.exe'),
+          path.join(localAppData, 'Chromium', 'Application', 'chrome.exe'),
+        ],
+      },
+    )
+  } else if (platform === 'darwin') {
+    candidates.push(
+      {
+        title: 'Google Chrome',
+        paths: ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'],
+      },
+      {
+        title: 'Microsoft Edge',
+        paths: ['/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'],
+      },
+      {
+        title: 'Brave',
+        paths: ['/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'],
+      },
+      {
+        title: 'Chromium',
+        paths: ['/Applications/Chromium.app/Contents/MacOS/Chromium'],
+      },
+    )
+  } else {
+    // Linux — buscar en PATH y rutas comunes
+    const linuxPaths: Array<{ title: string; bins: string[] }> = [
+      { title: 'Google Chrome',  bins: ['google-chrome', 'google-chrome-stable'] },
+      { title: 'Chromium',       bins: ['chromium', 'chromium-browser'] },
+      { title: 'Microsoft Edge', bins: ['microsoft-edge', 'microsoft-edge-stable'] },
+      { title: 'Brave',          bins: ['brave-browser', 'brave'] },
+    ]
+    for (const { title, bins } of linuxPaths) {
+      for (const bin of bins) {
+        try {
+          const result = execSync(`which ${bin} 2>/dev/null`, { encoding: 'utf8' }).trim()
+          if (result) { found.push({ title, value: result }); break }
+        } catch { /* no encontrado */ }
+      }
+    }
+    return found
+  }
+
+  for (const { title, paths } of candidates) {
+    for (const p of paths) {
+      if (fs.existsSync(p)) {
+        found.push({ title: `${title}  ${chalk.dim(p)}`, value: p })
+        break
+      }
+    }
+  }
+
+  return found
+}
+
+/**
+ * Verifica/selecciona el navegador a usar.
+ * Retorna la ruta del ejecutable o undefined (usa el Chromium gestionado).
+ */
+async function checkBrowserInstall(): Promise<string | undefined> {
   const customPath = process.env.PLAYWRIGHT_EXECUTABLE_PATH
   if (customPath) {
     if (!fs.existsSync(customPath)) {
@@ -30,7 +132,8 @@ async function checkBrowserInstall(): Promise<void> {
       console.log(chalk.dim('    Corrige la ruta en tu .env y vuelve a intentarlo.\n'))
       process.exit(1)
     }
-    return // path custom válido, sin necesidad de instalar
+    console.log(chalk.green(`  ✓ Usando navegador personalizado: ${chalk.dim(customPath)}`))
+    return customPath
   }
 
   // Verificar si el Chromium gestionado por Playwright está instalado
@@ -42,20 +145,35 @@ async function checkBrowserInstall(): Promise<void> {
     child.on('close', code => resolve(code ?? 1))
   })
 
-  if (checkCode !== 0) {
-    console.log(chalk.yellow('\n  ⚠ El navegador Chromium de Playwright no está instalado.'))
-    const { instalar } = await prompts({
-      type: 'confirm',
-      name: 'instalar',
-      message: '¿Instalar Chromium ahora? (npx playwright install chromium)',
-      initial: true,
-    }, { onCancel: () => process.exit(0) })
+  if (checkCode === 0) {
+    return undefined // Chromium gestionado disponible
+  }
 
-    if (!instalar) {
-      console.log(chalk.dim('\n  Ejecuta manualmente: npx playwright install chromium\n'))
-      process.exit(1)
-    }
+  // Chromium de Playwright no disponible → detectar navegadores del sistema
+  console.log(chalk.yellow('\n  ⚠ El navegador Chromium de Playwright no está instalado.'))
 
+  const systemBrowsers = detectSystemBrowsers()
+
+  const choices = [
+    ...systemBrowsers,
+    { title: chalk.dim('Instalar Chromium de Playwright (requiere internet)'), value: '__install__' },
+  ]
+
+  if (systemBrowsers.length > 0) {
+    console.log(chalk.dim(`  Se detectaron ${systemBrowsers.length} navegador(es) del sistema.\n`))
+  } else {
+    console.log(chalk.dim('  No se detectaron navegadores instalados en rutas estándar.\n'))
+  }
+
+  const { browserChoice } = await prompts({
+    type: 'select',
+    name: 'browserChoice',
+    message: 'Selecciona el navegador a usar:',
+    choices,
+    initial: 0,
+  }, { onCancel: () => process.exit(0) })
+
+  if (browserChoice === '__install__') {
     console.log(chalk.dim('\n  [Instalando Chromium...]\n'))
     const installCode = await new Promise<number>(resolve => {
       const child = spawn('npx', ['playwright', 'install', 'chromium'], {
@@ -70,7 +188,11 @@ async function checkBrowserInstall(): Promise<void> {
       process.exit(installCode)
     }
     console.log(chalk.green('\n  ✓ Chromium instalado correctamente.\n'))
+    return undefined
   }
+
+  console.log(chalk.green(`\n  ✓ Usando: ${chalk.dim(browserChoice)}\n`))
+  return browserChoice as string
 }
 
 function runProcess(
@@ -164,12 +286,13 @@ if (!confirmDiscover.ok) {
 }
 
 hr()
-await checkBrowserInstall()
+const browserPath = await checkBrowserInstall()
 console.log(chalk.dim('\n  [Playwright — discover.spec.ts]\n'))
 
 const discoverEnv: Record<string, string> = { BASE_URL: step1.url }
 if (step1.usuario) discoverEnv.TEST_USER = step1.usuario
 if (step1.password) discoverEnv.TEST_PASS = step1.password
+if (browserPath) discoverEnv.PLAYWRIGHT_EXECUTABLE_PATH = browserPath
 
 const discoverCode = await runProcess('npx', ['playwright', 'test', 'tests/discover.spec.ts'], discoverEnv)
 
@@ -312,8 +435,9 @@ console.log(chalk.dim('\n  [Playwright — form-csv.spec.ts]\n'))
 const testsCode = await runProcess('npx', ['playwright', 'test', 'tests/form-csv.spec.ts'], {
   BASE_URL:  step1.url,
   CSV_PATH:  csvPath,
-  ...(step1.usuario ? { TEST_USER: step1.usuario } : {}),
-  ...(step1.password ? { TEST_PASS: step1.password } : {}),
+  ...(step1.usuario  ? { TEST_USER: step1.usuario }   : {}),
+  ...(step1.password ? { TEST_PASS: step1.password }  : {}),
+  ...(browserPath    ? { PLAYWRIGHT_EXECUTABLE_PATH: browserPath } : {}),
 })
 
 hr()
