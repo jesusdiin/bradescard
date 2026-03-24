@@ -151,6 +151,45 @@ npx playwright install   # descarga Chromium
 
 ---
 
+## Windows / Red corporativa (error 407)
+
+Si `npx playwright install` falla con **Error 407 Proxy Authentication Required**, la red bloquea la descarga de Chromium. Usa una de estas opciones:
+
+### Opción A — Configurar el proxy antes de instalar (recomendado)
+
+```bat
+set HTTPS_PROXY=http://usuario:contraseña@proxy-host:puerto
+set HTTP_PROXY=http://usuario:contraseña@proxy-host:puerto
+npx playwright install chromium
+```
+
+> Si no sabes la dirección del proxy, pregúntale a tu área de IT.
+
+### Opción B — Usar Chrome ya instalado (sin descargar nada)
+
+Si ya tienes Google Chrome instalado en la máquina, puedes saltarte la descarga:
+
+**1.** Antes de `npm install`, configura la variable de entorno para evitar la descarga:
+
+```bat
+set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+npm install
+```
+
+**2.** Agrega esta línea a tu archivo `.env`:
+
+```
+PLAYWRIGHT_EXECUTABLE_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
+```
+
+Listo. Playwright usará ese Chrome en vez de descargar uno propio.
+
+### Opción C — Descargar manualmente desde otra red
+
+Descarga el archivo `chrome-win64.zip` del CDN de Playwright desde una máquina sin proxy, cópialo a la máquina con restricciones y extráelo. Luego usa `PLAYWRIGHT_EXECUTABLE_PATH` para apuntar al ejecutable extraído.
+
+---
+
 ## Reporte de resultados
 
 Después de correr los tests, Playwright genera un reporte visual:
