@@ -7,7 +7,7 @@ export default defineConfig({
     headless: false,          // navegador visible
     launchOptions: {
       slowMo: 1000,           // pausa entre acciones (ms)
-      executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH, // opcional: ruta a Chrome instalado
+      executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined, // opcional: ruta a Chrome instalado
     },
     viewport: { width: 1280, height: 800 },
     screenshot: 'only-on-failure',

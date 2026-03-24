@@ -22,6 +22,57 @@ function section(title: string) {
   console.log()
 }
 
+async function checkBrowserInstall(): Promise<void> {
+  const customPath = process.env.PLAYWRIGHT_EXECUTABLE_PATH
+  if (customPath) {
+    if (!fs.existsSync(customPath)) {
+      console.log(chalk.yellow(`\n  ⚠ PLAYWRIGHT_EXECUTABLE_PATH apunta a un archivo que no existe:\n    ${customPath}`))
+      console.log(chalk.dim('    Corrige la ruta en tu .env y vuelve a intentarlo.\n'))
+      process.exit(1)
+    }
+    return // path custom válido, sin necesidad de instalar
+  }
+
+  // Verificar si el Chromium gestionado por Playwright está instalado
+  const checkCode = await new Promise<number>(resolve => {
+    const child = spawn('npx', ['playwright', 'install', '--check'], {
+      stdio: 'pipe',
+      shell: process.platform === 'win32',
+    })
+    child.on('close', code => resolve(code ?? 1))
+  })
+
+  if (checkCode !== 0) {
+    console.log(chalk.yellow('\n  ⚠ El navegador Chromium de Playwright no está instalado.'))
+    const { instalar } = await prompts({
+      type: 'confirm',
+      name: 'instalar',
+      message: '¿Instalar Chromium ahora? (npx playwright install chromium)',
+      initial: true,
+    }, { onCancel: () => process.exit(0) })
+
+    if (!instalar) {
+      console.log(chalk.dim('\n  Ejecuta manualmente: npx playwright install chromium\n'))
+      process.exit(1)
+    }
+
+    console.log(chalk.dim('\n  [Instalando Chromium...]\n'))
+    const installCode = await new Promise<number>(resolve => {
+      const child = spawn('npx', ['playwright', 'install', 'chromium'], {
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+      })
+      child.on('close', code => resolve(code ?? 1))
+    })
+
+    if (installCode !== 0) {
+      console.log(chalk.red('\n  ✗ Error al instalar Chromium. Instálalo manualmente con: npx playwright install chromium\n'))
+      process.exit(installCode)
+    }
+    console.log(chalk.green('\n  ✓ Chromium instalado correctamente.\n'))
+  }
+}
+
 function runProcess(
   cmd: string,
   args: string[],
@@ -113,6 +164,7 @@ if (!confirmDiscover.ok) {
 }
 
 hr()
+await checkBrowserInstall()
 console.log(chalk.dim('\n  [Playwright — discover.spec.ts]\n'))
 
 const discoverEnv: Record<string, string> = { BASE_URL: step1.url }
